@@ -1,0 +1,25 @@
+[package]
+name = "lsftp-client"
+version = "0.1.0"
+edition = "2021"
+description = "LSFTP client implementation with CLI and libraries"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true, features = ["full"] }
+clap = { workspace = true }
+serde = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Core LSFTP
+lsftp-core = { path = "../lsftp-core" }
+
+# Additional dependencies
+indicatif = "0.17"
+tokio-util = "0.7"
+bytes = "1.5"
+async-trait = "0.1"

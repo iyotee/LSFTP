@@ -1,0 +1,54 @@
+[package]
+name = "lsftp-core"
+version = "0.1.0"
+edition = "2021"
+description = "Core LSFTP protocol implementation with post-quantum cryptography"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+# Workspace dependencies
+tokio = { workspace = true, features = ["full"] }
+quinn = { workspace = true }
+rustls = { workspace = true }
+rustls-pemfile = { workspace = true }
+
+# Cryptography
+ring = { workspace = true }
+blake3 = { workspace = true }
+chacha20poly1305 = { workspace = true }
+aes-gcm = { workspace = true }
+sha3 = { workspace = true }
+
+# Hardware Security (Linux only)
+# yubikey = { workspace = true }
+# tss-esapi = { workspace = true }
+# pcsc = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+postcard = { workspace = true, features = ["alloc"] }
+toml = { workspace = true }
+
+# System Integration (Linux only)
+# nix = { workspace = true }
+# caps = { workspace = true }
+# seccomp = "0.1"
+
+# Observability
+tracing = { workspace = true }
+metrics = { workspace = true }
+
+# Utilities
+uuid = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+zeroize = { workspace = true }
+subtle = { workspace = true }
+
+# Additional dependencies for core functionality
+bytes = "1.5"
+async-trait = "0.1"
+futures = "0.3"
+pin-project = "1.1"
