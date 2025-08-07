@@ -116,7 +116,7 @@ LSFTP implements a hybrid approach combining classical and post-quantum algorith
 
 #### 3.2.1 Key Exchange Protocol
 ```
-Client                                   Server
+Client                                  Server
   |                                       |
   |--- ClientHello (X25519 + ML-KEM) ---->|
   |                                       |
@@ -282,7 +282,7 @@ Client                                    Server
 #### 6.1.1 Frame Format
 ```
 ┌─────────┬─────────┬─────────┬─────────┬─────────┐
-│ Version │  Type   │  Flags  │  Length │ Payload │
+│ Version │  Type   │  Flags  │ Length  │ Payload │
 │  (1B)   │  (1B)   │  (2B)   │  (4B)   │  (var)  │
 └─────────┴─────────┴─────────┴─────────┴─────────┘
 ```
