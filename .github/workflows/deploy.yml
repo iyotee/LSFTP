@@ -1,0 +1,236 @@
+name: LSFTP Deployment
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # Build and create release
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          pkg-config \
+          libssl-dev \
+          libtpm2-tools \
+          libpcsclite-dev
+
+    - name: Build release binaries
+      run: |
+        cargo build --release --all-targets --all-features
+        mkdir -p dist
+        cp target/release/lsftp-server dist/
+        cp target/release/lsftp-client dist/
+        cp target/release/lsftp-tools dist/
+
+    - name: Create release archives
+      run: |
+        # Linux x86_64
+        tar -czf lsftp-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+        sha256sum lsftp-${{ github.ref_name }}-linux-x86_64.tar.gz > lsftp-${{ github.ref_name }}-linux-x86_64.tar.gz.sha256
+        
+        # Create Docker images
+        docker build --target server -t lsftp-server:${{ github.ref_name }} .
+        docker build --target client -t lsftp-client:${{ github.ref_name }} .
+        docker build --target tools -t lsftp-tools:${{ github.ref_name }} .
+        docker build --target complete -t lsftp:${{ github.ref_name }} .
+
+    - name: Save Docker images
+      run: |
+        docker save lsftp-server:${{ github.ref_name }} | gzip > lsftp-server-${{ github.ref_name }}.tar.gz
+        docker save lsftp-client:${{ github.ref_name }} | gzip > lsftp-client-${{ github.ref_name }}.tar.gz
+        docker save lsftp-tools:${{ github.ref_name }} | gzip > lsftp-tools-${{ github.ref_name }}.tar.gz
+        docker save lsftp:${{ github.ref_name }} | gzip > lsftp-${{ github.ref_name }}.tar.gz
+
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          lsftp-${{ github.ref_name }}-linux-x86_64.tar.gz
+          lsftp-${{ github.ref_name }}-linux-x86_64.tar.gz.sha256
+          lsftp-server-${{ github.ref_name }}.tar.gz
+          lsftp-client-${{ github.ref_name }}.tar.gz
+          lsftp-tools-${{ github.ref_name }}.tar.gz
+          lsftp-${{ github.ref_name }}.tar.gz
+        body: |
+          # LSFTP ${{ github.ref_name }} Release
+          
+          ## Linux Secure File Transfer Protocol
+          
+          **Version:** ${{ github.ref_name }}  
+          **Author:** Jérémy Noverraz - 1988  
+          **License:** MIT License  
+          
+          ### What's New
+          
+          - Post-quantum cryptography with ML-KEM and ML-DSA
+          - Hardware authentication (TPM 2.0, YubiKey, Smart Cards)
+          - QUIC transport with TLS 1.3
+          - Perfect Forward Secrecy
+          - Immutable audit trails
+          
+          ### Installation
+          
+          ```bash
+          # Extract binary
+          tar -xzf lsftp-${{ github.ref_name }}-linux-x86_64.tar.gz
+          
+          # Or use Docker
+          docker load < lsftp-${{ github.ref_name }}.tar.gz
+          ```
+          
+          ### Quick Start
+          
+          ```bash
+          # Generate keys
+          lsftp-tools keygen --key-type hybrid --output-cert server.crt --output-key server.key
+          
+          # Start server
+          lsftp-server --cert server.crt --key server.key
+          
+          # Connect client
+          lsftp-client --server-address localhost:8443
+          ```
+          
+          ### Security Features
+          
+          - **Post-Quantum Cryptography**: ML-KEM-768/1024, ML-DSA-65/87
+          - **Hardware Authentication**: TPM 2.0, YubiKey, Smart Cards
+          - **Perfect Forward Secrecy**: Ephemeral key exchange
+          - **Cryptographic Integrity**: BLAKE3 hashing
+          - **Audit Trails**: Immutable, cryptographically signed logs
+          
+          ### Compliance
+          
+          - FIPS 140-2 Level 3 (target)
+          - Common Criteria EAL4+ (target)
+          - NIST Cybersecurity Framework
+          - ISO 27001
+          - GDPR
+          
+          ### Documentation
+          
+          See [README.md](https://github.com/iyotee/LSFTP/blob/master/README.md) for complete documentation.
+          
+          ### Support
+          
+          For issues and questions, please use GitHub Issues.
+          
+          ---
+          
+          *Secure File Transfer for the Post-Quantum Era*
+        draft: false
+        prerelease: false
+        generate_release_notes: true
+
+  # Deploy to Docker Hub
+  docker-hub:
+    name: Deploy to Docker Hub
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Build and push Docker images
+      run: |
+        # Build and push server
+        docker build --target server -t ${{ secrets.DOCKER_USERNAME }}/lsftp-server:${{ github.ref_name }} .
+        docker build --target server -t ${{ secrets.DOCKER_USERNAME }}/lsftp-server:latest .
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp-server:${{ github.ref_name }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp-server:latest
+        
+        # Build and push client
+        docker build --target client -t ${{ secrets.DOCKER_USERNAME }}/lsftp-client:${{ github.ref_name }} .
+        docker build --target client -t ${{ secrets.DOCKER_USERNAME }}/lsftp-client:latest .
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp-client:${{ github.ref_name }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp-client:latest
+        
+        # Build and push tools
+        docker build --target tools -t ${{ secrets.DOCKER_USERNAME }}/lsftp-tools:${{ github.ref_name }} .
+        docker build --target tools -t ${{ secrets.DOCKER_USERNAME }}/lsftp-tools:latest .
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp-tools:${{ github.ref_name }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp-tools:latest
+        
+        # Build and push complete image
+        docker build --target complete -t ${{ secrets.DOCKER_USERNAME }}/lsftp:${{ github.ref_name }} .
+        docker build --target complete -t ${{ secrets.DOCKER_USERNAME }}/lsftp:latest .
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp:${{ github.ref_name }}
+        docker push ${{ secrets.DOCKER_USERNAME }}/lsftp:latest
+
+  # Deploy to GitHub Packages
+  github-packages:
+    name: Deploy to GitHub Packages
+    runs-on: ubuntu-latest
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Login to GitHub Container Registry
+      uses: docker/login-action@v2
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Build and push to GitHub Packages
+      run: |
+        # Build and push server
+        docker build --target server -t ghcr.io/${{ github.repository }}/lsftp-server:${{ github.ref_name }} .
+        docker build --target server -t ghcr.io/${{ github.repository }}/lsftp-server:latest .
+        docker push ghcr.io/${{ github.repository }}/lsftp-server:${{ github.ref_name }}
+        docker push ghcr.io/${{ github.repository }}/lsftp-server:latest
+        
+        # Build and push client
+        docker build --target client -t ghcr.io/${{ github.repository }}/lsftp-client:${{ github.ref_name }} .
+        docker build --target client -t ghcr.io/${{ github.repository }}/lsftp-client:latest .
+        docker push ghcr.io/${{ github.repository }}/lsftp-client:${{ github.ref_name }}
+        docker push ghcr.io/${{ github.repository }}/lsftp-client:latest
+        
+        # Build and push tools
+        docker build --target tools -t ghcr.io/${{ github.repository }}/lsftp-tools:${{ github.ref_name }} .
+        docker build --target tools -t ghcr.io/${{ github.repository }}/lsftp-tools:latest .
+        docker push ghcr.io/${{ github.repository }}/lsftp-tools:${{ github.ref_name }}
+        docker push ghcr.io/${{ github.repository }}/lsftp-tools:latest
+        
+        # Build and push complete image
+        docker build --target complete -t ghcr.io/${{ github.repository }}/lsftp:${{ github.ref_name }} .
+        docker build --target complete -t ghcr.io/${{ github.repository }}/lsftp:latest .
+        docker push ghcr.io/${{ github.repository }}/lsftp:${{ github.ref_name }}
+        docker push ghcr.io/${{ github.repository }}/lsftp:latest
