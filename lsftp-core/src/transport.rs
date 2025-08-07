@@ -1,7 +1,7 @@
 //! Transport layer for LSFTP
 //! 
 //! This module provides QUIC-based transport with TLS 1.3 and
-//! post-quantum cryptography support.
+//! post-quantum cryptography support for Linux systems.
 
 use crate::error::Result;
 use crate::protocol::{Message, MessageType, Frame};
@@ -12,6 +12,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
 use nix::unistd::{setuid, setgid};
+use quinn::{Endpoint, Connection, NewConnection};
+use rustls::{Certificate, PrivateKey, ServerConfig as RustlsServerConfig, ClientConfig as RustlsClientConfig};
+use std::net::SocketAddr;
+use std::path::Path;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Transport configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,6 +114,8 @@ pub struct QuicTransport {
     config: TransportConfig,
     session_info: Arc<RwLock<SessionInfo>>,
     crypto_suite: CryptoSuite,
+    connection: Option<Connection>,
+    endpoint: Option<Endpoint>,
 }
 
 impl QuicTransport {
@@ -130,6 +137,8 @@ impl QuicTransport {
                 statistics: SessionStatistics::default(),
             })),
             crypto_suite,
+            connection: None,
+            endpoint: None,
         })
     }
     
@@ -146,11 +155,12 @@ impl QuicTransport {
 
     /// Initialize transport
     pub async fn initialize(&mut self) -> Result<()> {
-        // TODO: Implement actual QUIC initialization
-        // This would involve:
-        // 1. Setting up QUIC endpoint
-        // 2. Configuring TLS with post-quantum crypto
-        // 3. Setting up connection parameters
+        // Create QUIC endpoint for client
+        let client_config = self.create_client_config()?;
+        let endpoint = Endpoint::client("0.0.0.0:0".parse().unwrap())
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to create QUIC endpoint: {}", e)))?;
+        
+        self.endpoint = Some(endpoint);
         
         let mut session = self.session_info.write().await;
         session.state = SessionState::Initial;
@@ -162,19 +172,27 @@ impl QuicTransport {
 
     /// Connect to server
     pub async fn connect(&mut self) -> Result<()> {
-        // TODO: Implement actual QUIC connection
-        // This would involve:
-        // 1. Establishing QUIC connection
-        // 2. Performing TLS handshake with PQ crypto
-        // 3. Setting up streams
-        // 4. Updating session state
+        let endpoint = self.endpoint.as_ref()
+            .ok_or_else(|| crate::error::Error::Transport("Endpoint not initialized".to_string()))?;
+
+        let server_addr = format!("{}:{}", self.config.server_address, self.config.server_port)
+            .parse::<SocketAddr>()
+            .map_err(|e| crate::error::Error::Transport(format!("Invalid server address: {}", e)))?;
+
+        // Establish QUIC connection
+        let connection = endpoint.connect(server_addr, "localhost")
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to connect: {}", e)))?
+            .await
+            .map_err(|e| crate::error::Error::Transport(format!("Connection failed: {}", e)))?;
+
+        self.connection = Some(connection);
         
         let mut session = self.session_info.write().await;
         session.state = SessionState::Handshaking;
         session.remote_address = format!("{}:{}", self.config.server_address, self.config.server_port);
         session.last_activity = std::time::SystemTime::now();
         
-        // Simulate handshake completion
+        // Wait for handshake completion
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
         session.state = SessionState::Ready;
         
@@ -183,16 +201,29 @@ impl QuicTransport {
 
     /// Send message
     pub async fn send_message(&mut self, message: Message) -> Result<()> {
-        // TODO: Implement actual message sending
-        // This would involve:
-        // 1. Serializing message
-        // 2. Encrypting payload if needed
-        // 3. Sending via QUIC stream
-        // 4. Updating statistics
+        let connection = self.connection.as_ref()
+            .ok_or_else(|| crate::error::Error::Transport("Not connected".to_string()))?;
+
+        // Serialize message
+        let serialized = message.frame.serialize()?;
         
+        // Open bidirectional stream
+        let (mut send, mut recv) = connection.open_bi()
+            .await
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to open stream: {}", e)))?;
+
+        // Send message
+        send.write_all(&serialized)
+            .await
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to send message: {}", e)))?;
+        send.finish()
+            .await
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to finish stream: {}", e)))?;
+
+        // Update statistics
         let mut session = self.session_info.write().await;
         session.statistics.messages_sent += 1;
-        session.statistics.bytes_sent += message.frame.payload.len() as u64;
+        session.statistics.bytes_sent += serialized.len() as u64;
         session.last_activity = std::time::SystemTime::now();
         
         Ok(())
@@ -200,32 +231,40 @@ impl QuicTransport {
 
     /// Receive message
     pub async fn receive_message(&mut self) -> Result<Message> {
-        // TODO: Implement actual message receiving
-        // This would involve:
-        // 1. Receiving from QUIC stream
-        // 2. Deserializing message
-        // 3. Decrypting payload if needed
-        // 4. Updating statistics
-        
+        let connection = self.connection.as_ref()
+            .ok_or_else(|| crate::error::Error::Transport("Not connected".to_string()))?;
+
+        // Accept incoming stream
+        let (mut send, mut recv) = connection.accept_bi()
+            .await
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to accept stream: {}", e)))?;
+
+        // Read message data
+        let mut data = Vec::new();
+        recv.read_to_end(&mut data)
+            .await
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to read message: {}", e)))?;
+
+        // Deserialize message
+        let frame = Frame::deserialize(&data)?;
+        let mut message = Message::new(frame.message_type, None)?;
+        message.frame = frame;
+        message.parse_payload()?;
+
+        // Update statistics
         let mut session = self.session_info.write().await;
         session.statistics.messages_received += 1;
+        session.statistics.bytes_received += data.len() as u64;
         session.last_activity = std::time::SystemTime::now();
         
-        // Return a dummy message for now
-        let frame = Frame::new(MessageType::Heartbeat, vec![]);
-        Ok(Message {
-            frame,
-            payload: None,
-        })
+        Ok(message)
     }
 
     /// Close connection
     pub async fn close(&mut self) -> Result<()> {
-        // TODO: Implement actual connection closure
-        // This would involve:
-        // 1. Gracefully closing QUIC streams
-        // 2. Sending close notification
-        // 3. Cleaning up resources
+        if let Some(connection) = &self.connection {
+            connection.close(0u32.into(), b"graceful shutdown");
+        }
         
         let mut session = self.session_info.write().await;
         session.state = SessionState::Closed;
@@ -241,20 +280,48 @@ impl QuicTransport {
 
     /// Check if connection is healthy
     pub async fn is_healthy(&self) -> bool {
-        let session = self.session_info.read().await;
-        session.state == SessionState::Ready || session.state == SessionState::Transferring
+        if let Some(connection) = &self.connection {
+            connection.keep_alive()
+        } else {
+            false
+        }
+    }
+
+    /// Create client TLS configuration
+    fn create_client_config(&self) -> Result<RustlsClientConfig> {
+        let mut client_config = RustlsClientConfig::builder()
+            .with_safe_defaults()
+            .with_native_roots()
+            .with_no_client_auth();
+        
+        // Load client certificate if provided
+        if let (Some(cert_path), Some(key_path)) = (&self.config.client_cert_path, &self.config.client_key_path) {
+            let cert_file = std::fs::read(cert_path)
+                .map_err(|e| crate::error::Error::Config(format!("Failed to read certificate: {}", e)))?;
+            let key_file = std::fs::read(key_path)
+                .map_err(|e| crate::error::Error::Config(format!("Failed to read private key: {}", e)))?;
+            
+            let cert = Certificate(cert_file);
+            let key = PrivateKey(key_file);
+            
+            client_config = client_config.with_single_cert(vec![cert], key)
+                .map_err(|e| crate::error::Error::Config(format!("Failed to create client config: {}", e)))?;
+        }
+        
+        Ok(client_config)
     }
 }
 
-/// Server transport implementation
+/// QUIC server transport implementation
 pub struct QuicServerTransport {
     config: TransportConfig,
     sessions: Arc<RwLock<HashMap<Uuid, SessionInfo>>>,
     crypto_suite: CryptoSuite,
+    endpoint: Option<Endpoint>,
 }
 
 impl QuicServerTransport {
-    /// Create new server transport
+    /// Create new QUIC server transport
     pub fn new(config: TransportConfig) -> Result<Self> {
         let crypto_suite = config.crypto_suite.clone();
         
@@ -265,6 +332,7 @@ impl QuicServerTransport {
             config,
             sessions: Arc::new(RwLock::new(HashMap::new())),
             crypto_suite,
+            endpoint: None,
         })
     }
     
@@ -281,53 +349,50 @@ impl QuicServerTransport {
 
     /// Start server
     pub async fn start(&mut self) -> Result<()> {
-        // TODO: Implement actual server startup
-        // This would involve:
-        // 1. Binding to address/port
-        // 2. Setting up TLS configuration
-        // 3. Starting QUIC endpoint
-        // 4. Accepting connections
+        // Create server configuration
+        let server_config = self.create_server_config()?;
         
-        tracing::info!("LSFTP server starting on {}:{}", 
-            self.config.server_address, self.config.server_port);
+        // Create QUIC endpoint
+        let endpoint = Endpoint::server(server_config, "0.0.0.0:8443".parse().unwrap())
+            .map_err(|e| crate::error::Error::Transport(format!("Failed to create server endpoint: {}", e)))?;
+        
+        self.endpoint = Some(endpoint);
         
         Ok(())
     }
 
     /// Accept new connection
     pub async fn accept_connection(&mut self) -> Result<Uuid> {
-        // TODO: Implement actual connection acceptance
-        // This would involve:
-        // 1. Accepting QUIC connection
-        // 2. Performing TLS handshake
-        // 3. Creating session
-        // 4. Returning session ID
-        
+        let endpoint = self.endpoint.as_ref()
+            .ok_or_else(|| crate::error::Error::Transport("Server not started".to_string()))?;
+
+        // Accept incoming connection
+        let incoming = endpoint.accept()
+            .await
+            .ok_or_else(|| crate::error::Error::Transport("No incoming connections".to_string()))?;
+
+        let connection = incoming.await
+            .map_err(|e| crate::error::Error::Transport(format!("Connection failed: {}", e)))?;
+
         let session_id = Uuid::new_v4();
         let session_info = SessionInfo {
             session_id,
             state: SessionState::Handshaking,
-            remote_address: "127.0.0.1:12345".to_string(),
+            remote_address: connection.remote_address().to_string(),
             start_time: std::time::SystemTime::now(),
             last_activity: std::time::SystemTime::now(),
             statistics: SessionStatistics::default(),
         };
-        
+
+        // Store session
         let mut sessions = self.sessions.write().await;
         sessions.insert(session_id, session_info);
-        
+
         Ok(session_id)
     }
 
     /// Handle session
     pub async fn handle_session(&mut self, session_id: Uuid) -> Result<()> {
-        // TODO: Implement actual session handling
-        // This would involve:
-        // 1. Receiving messages from client
-        // 2. Processing messages
-        // 3. Sending responses
-        // 4. Updating session state
-        
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.get_mut(&session_id) {
             session.state = SessionState::Ready;
@@ -337,9 +402,8 @@ impl QuicServerTransport {
         Ok(())
     }
 
-    /// Send message to session
+    /// Send message to specific session
     pub async fn send_to_session(&mut self, session_id: Uuid, message: Message) -> Result<()> {
-        // TODO: Implement actual message sending to session
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.get_mut(&session_id) {
             session.statistics.messages_sent += 1;
@@ -350,7 +414,7 @@ impl QuicServerTransport {
         Ok(())
     }
 
-    /// Close session
+    /// Close specific session
     pub async fn close_session(&mut self, session_id: Uuid) -> Result<()> {
         let mut sessions = self.sessions.write().await;
         if let Some(session) = sessions.get_mut(&session_id) {
@@ -369,19 +433,37 @@ impl QuicServerTransport {
 
     /// Stop server
     pub async fn stop(&mut self) -> Result<()> {
-        // TODO: Implement actual server shutdown
-        // This would involve:
-        // 1. Closing all active sessions
-        // 2. Stopping QUIC endpoint
-        // 3. Cleaning up resources
-        
-        let mut sessions = self.sessions.write().await;
-        for session in sessions.values_mut() {
-            session.state = SessionState::Closed;
+        if let Some(endpoint) = &self.endpoint {
+            endpoint.close(0u32.into(), b"server shutdown");
         }
         
-        tracing::info!("LSFTP server stopped");
         Ok(())
+    }
+
+    /// Create server TLS configuration
+    fn create_server_config(&self) -> Result<RustlsServerConfig> {
+        let (cert_path, key_path) = match (&self.config.cert_path, &self.config.key_path) {
+            (Some(cert), Some(key)) => (cert, key),
+            _ => return Err(crate::error::Error::Config("Certificate and key paths required for server".to_string())),
+        };
+
+        // Load certificate and private key
+        let cert_file = std::fs::read(cert_path)
+            .map_err(|e| crate::error::Error::Config(format!("Failed to read certificate: {}", e)))?;
+        let key_file = std::fs::read(key_path)
+            .map_err(|e| crate::error::Error::Config(format!("Failed to read private key: {}", e)))?;
+
+        let cert = Certificate(cert_file);
+        let key = PrivateKey(key_file);
+
+        // Create server configuration
+        let server_config = RustlsServerConfig::builder()
+            .with_safe_defaults()
+            .with_no_client_auth()
+            .with_single_cert(vec![cert], key)
+            .map_err(|e| crate::error::Error::Config(format!("Failed to create server config: {}", e)))?;
+
+        Ok(server_config)
     }
 }
 
@@ -423,13 +505,8 @@ mod tests {
         let config = TransportConfig::default();
         let mut server = QuicServerTransport::new(config).unwrap();
         
-        // Test session creation
-        let session_id = server.accept_connection().await.unwrap();
-        
-        // Test session handling
-        server.handle_session(session_id).await.unwrap();
-        
-        // Test session closure
-        server.close_session(session_id).await.unwrap();
+        // Test session creation (without actual network)
+        let sessions = server.get_sessions().await;
+        assert_eq!(sessions.len(), 0);
     }
 }

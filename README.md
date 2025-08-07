@@ -2,8 +2,8 @@
 
 **Version:** 1.0  
 **Status:** Draft Specification  
-**Date:** December 2024  
-**Authors:** LSFTP Development Team  
+**Date:** August 2025  
+**Author:** Jérémy Noverraz - 1988  
 **License:** MIT License  
 
 ## Abstract
@@ -46,22 +46,22 @@ This specification is organized as follows:
 ```
 ┌─────────────────────────────────────────┐
 │           Application Layer             │
-│         (File Operations)              │
+│         (File Operations)               │
 ├─────────────────────────────────────────┤
-│           LSFTP Protocol               │
-│         (Message Handling)             │
+│           LSFTP Protocol                │
+│         (Message Handling)              │
 ├─────────────────────────────────────────┤
 │         Authentication Layer            │
-│      (Hardware + Cryptographic)        │
+│      (Hardware + Cryptographic)         │
 ├─────────────────────────────────────────┤
-│           TLS 1.3 + PQC               │
-│      (ML-KEM + ML-DSA Hybrid)         │
+│           TLS 1.3 + PQC                 │
+│      (ML-KEM + ML-DSA Hybrid)           │
 ├─────────────────────────────────────────┤
-│              QUIC (HTTP/3)             │
-│         (Multiplexed Transport)        │
+│              QUIC (HTTP/3)              │
+│         (Multiplexed Transport)         │
 ├─────────────────────────────────────────┤
-│                 UDP                    │
-│            (Network Layer)             │
+│                 UDP                     │
+│            (Network Layer)              │
 └─────────────────────────────────────────┘
 ```
 
@@ -116,19 +116,19 @@ LSFTP implements a hybrid approach combining classical and post-quantum algorith
 
 #### 3.2.1 Key Exchange Protocol
 ```
-Client                                    Server
-  |                                        |
+Client                                   Server
+  |                                       |
   |--- ClientHello (X25519 + ML-KEM) ---->|
-  |                                        |
+  |                                       |
   |<-- ServerHello (X25519 + ML-KEM) -----|
-  |                                        |
+  |                                       |
   |--- KeyShare (Hybrid) ---------------->|
-  |                                        |
-  |<-- KeyShare (Hybrid) ------------------|
-  |                                        |
+  |                                       |
+  |<-- KeyShare (Hybrid) -----------------|
+  |                                       |
   |--- Finished (BLAKE3) ---------------->|
-  |                                        |
-  |<-- Finished (BLAKE3) ------------------|
+  |                                       |
+  |<-- Finished (BLAKE3) -----------------|
 ```
 
 #### 3.2.2 Message Authentication
@@ -242,15 +242,15 @@ Client                                    Server
   |                                        |
   |<-- ServerHello (PQC + Classical) ------|
   |                                        |
-  |--- Certificate (X.509 + PQC) -------->|
+  |--- Certificate (X.509 + PQC) --------->|
   |                                        |
-  |<-- Certificate (X.509 + PQC) ---------|
+  |<-- Certificate (X.509 + PQC) ----------|
   |                                        |
   |--- CertificateVerify (ML-DSA) -------->|
   |                                        |
   |<-- CertificateVerify (ML-DSA) ---------|
   |                                        |
-  |--- Finished (BLAKE3) ---------------->|
+  |--- Finished (BLAKE3) ----------------->|
   |                                        |
   |<-- Finished (BLAKE3) ------------------|
 ```
@@ -282,8 +282,8 @@ Client                                    Server
 #### 6.1.1 Frame Format
 ```
 ┌─────────┬─────────┬─────────┬─────────┬─────────┐
-│ Version │  Type   │  Flags  │ Length  │ Payload │
-│  (1B)   │  (1B)   │  (2B)   │  (4B)   │ (var)  │
+│ Version │  Type   │  Flags  │  Length │ Payload │
+│  (1B)   │  (1B)   │  (2B)   │  (4B)   │  (var)  │
 └─────────┴─────────┴─────────┴─────────┴─────────┘
 ```
 
@@ -649,5 +649,5 @@ key_path = "/etc/lsftp/certs/client.key"
 
 ---
 
-**LSFTP Protocol Specification v2.0**  
+**LSFTP Protocol Specification v1.0**  
 *Secure File Transfer for the Post-Quantum Era*

@@ -19,6 +19,10 @@ chacha20poly1305 = { workspace = true }
 aes-gcm = { workspace = true }
 sha3 = { workspace = true }
 
+# Post-Quantum Cryptography (NIST PQC)
+pqc-sys = "0.1"  # liboqs bindings for ML-KEM and ML-DSA
+oqs = "0.8"      # Alternative post-quantum library
+
 # Hardware Security (Linux only)
 yubikey = { workspace = true }
 tss-esapi = { workspace = true }
@@ -50,3 +54,6 @@ bytes = "1.5"
 async-trait = "0.1"
 futures = "0.3"
 pin-project = "1.1"
+
+# Additional dependencies for transport
+hex = "0.4"
