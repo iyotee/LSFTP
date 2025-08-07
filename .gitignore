@@ -42,4 +42,7 @@ logs/
 # Configuration files with sensitive data
 config/local.toml
 config/production.toml
+
+# Remove prompt.ini from tracking
+prompt.ini
 prompt.ini

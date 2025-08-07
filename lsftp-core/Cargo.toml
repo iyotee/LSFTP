@@ -20,9 +20,9 @@ aes-gcm = { workspace = true }
 sha3 = { workspace = true }
 
 # Hardware Security (Linux only)
-# yubikey = { workspace = true }
-# tss-esapi = { workspace = true }
-# pcsc = { workspace = true }
+yubikey = { workspace = true }
+tss-esapi = { workspace = true }
+pcsc = { workspace = true }
 
 # Serialization
 serde = { workspace = true }
@@ -30,9 +30,7 @@ postcard = { workspace = true, features = ["alloc"] }
 toml = { workspace = true }
 
 # System Integration (Linux only)
-# nix = { workspace = true }
-# caps = { workspace = true }
-# seccomp = "0.1"
+nix = { workspace = true }
 
 # Observability
 tracing = { workspace = true }

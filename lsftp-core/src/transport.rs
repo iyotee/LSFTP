@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use uuid::Uuid;
+use nix::unistd::{setuid, setgid};
 
 /// Transport configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -114,6 +115,10 @@ impl QuicTransport {
     /// Create new QUIC transport
     pub fn new(config: TransportConfig) -> Result<Self> {
         let crypto_suite = config.crypto_suite.clone();
+        
+        // Apply Linux security measures
+        Self::apply_linux_security()?;
+        
         Ok(Self {
             config,
             session_info: Arc::new(RwLock::new(SessionInfo {
@@ -126,6 +131,17 @@ impl QuicTransport {
             })),
             crypto_suite,
         })
+    }
+    
+    /// Apply Linux-specific security measures
+    fn apply_linux_security() -> Result<()> {
+        // Drop privileges to non-root user for security
+        unsafe {
+            setuid(nix::unistd::Uid::from_raw(1000))?;
+            setgid(nix::unistd::Gid::from_raw(1000))?;
+        }
+        
+        Ok(())
     }
 
     /// Initialize transport
@@ -241,11 +257,26 @@ impl QuicServerTransport {
     /// Create new server transport
     pub fn new(config: TransportConfig) -> Result<Self> {
         let crypto_suite = config.crypto_suite.clone();
+        
+        // Apply Linux security measures
+        Self::apply_linux_security()?;
+        
         Ok(Self {
             config,
             sessions: Arc::new(RwLock::new(HashMap::new())),
             crypto_suite,
         })
+    }
+    
+    /// Apply Linux-specific security measures
+    fn apply_linux_security() -> Result<()> {
+        // Drop privileges to non-root user for security
+        unsafe {
+            setuid(nix::unistd::Uid::from_raw(1000))?;
+            setgid(nix::unistd::Gid::from_raw(1000))?;
+        }
+        
+        Ok(())
     }
 
     /// Start server

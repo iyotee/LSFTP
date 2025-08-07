@@ -1,6 +1,6 @@
 # LSFTP: Linux Secure File Transfer Protocol
 
-**Version:** 2.0  
+**Version:** 1.0  
 **Status:** Draft Specification  
 **Date:** December 2024  
 **Authors:** LSFTP Development Team  

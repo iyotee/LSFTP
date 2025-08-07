@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 
-// TODO: Re-enable hardware security modules when cross-platform support is available
+// Hardware security modules enabled for Linux
 
 /// Hardware device types
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -7,6 +7,7 @@ use crate::error::{Error, Result};
 use serde::{Deserialize, Serialize};
 use ring::signature::KeyPair;
 use std::time::SystemTime;
+use libc;
 
 /// Supported key exchange algorithms
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -99,14 +100,11 @@ pub struct PrivateKey {
 
 impl PrivateKey {
     pub fn new(algorithm: KemAlgorithm, material: Vec<u8>) -> Result<Self> {
-        // Lock memory pages to prevent swap
-        #[cfg(target_os = "linux")]
+        // Lock memory pages to prevent swap (Linux only)
         unsafe {
-            // TODO: Implement memory locking for Linux
-            // use libc::{mlock, mlockall, MCL_CURRENT, MCL_FUTURE};
-            // if mlock(material.as_ptr() as *const _, material.len()) != 0 {
-            //     return Err(Error::System("Failed to lock memory pages".to_string()));
-            // }
+            if libc::mlock(material.as_ptr() as *const _, material.len()) != 0 {
+                return Err(Error::System("Failed to lock memory pages".to_string()));
+            }
         }
 
         Ok(Self {
